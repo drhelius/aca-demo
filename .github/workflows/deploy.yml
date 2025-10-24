@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-image:
-    name: Build Docker image
+    name: Build Docker images and push to ACR
     runs-on: ubuntu-latest
     steps:
 
@@ -16,5 +16,20 @@ jobs:
       uses: azure/login@v2
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
-    
-   
+
+    - name: Build and push Nginx sidecar
+      run: |
+        az acr build \
+          --registry ${{ secrets.ACR_NAME }} \
+          --image nginx-proxy:${{ github.sha }} \
+          --file ./nginx-sidecar/Dockerfile \
+          ./nginx-sidecar
+
+    - name: Build and push Flask app
+      run: |
+        az acr build \
+          --registry ${{ secrets.ACR_NAME }} \
+          --image qa-demo:${{ github.sha }} \
+          --file ./flask-app/Dockerfile \
+          ./flask-app
+
