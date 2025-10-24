@@ -2,9 +2,9 @@ name: Deploy to Azure Container Apps
 
 on:
   workflow_dispatch:
-    push:
-      paths-ignore:
-        - '**.md'
+  push:
+    paths-ignore:
+      - '**.md'
 
 jobs:
   build-image:
