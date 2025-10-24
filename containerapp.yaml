@@ -1,0 +1,31 @@
+properties:
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 8080
+      transport: auto
+      allowInsecure: false
+  template:
+    containers:
+      - name: flask-app
+        image: {acr-name}.azurecr.io/qa-demo:{image-tag}
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+        env:
+          - name: ENVIRONMENT
+            value: production
+      - name: nginx-sidecar
+        image: {acr-name}.azurecr.io/nginx-proxy:{image-tag}
+        resources:
+          cpu: 0.25
+          memory: 0.5Gi
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
+      rules:
+        - name: http-rule
+          http:
+            metadata:
+              concurrentRequests: '10'
