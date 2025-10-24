@@ -36,3 +36,16 @@ jobs:
           --file ./flask-app/Dockerfile \
           ./flask-app
 
+    - name: Replace placeholders in containerapp.yaml
+      run: |
+        sed -i "s/{acr-name}/${{ secrets.ACR_NAME }}/g" containerapp.yaml
+        sed -i "s/{image-tag}/${{ github.sha }}/g" containerapp.yaml
+
+    - name: Deploy Container App
+      uses: azure/container-apps-deploy-action@v1
+      with:
+        yamlConfigPath: containerapp.yaml
+        containerAppName: ${{ secrets.ACA_NAME }}
+        containerAppEnvironment: ${{ secrets.ACA_ENV_NAME }}
+        resourceGroup: ${{ secrets.ACA_RG }}
+
