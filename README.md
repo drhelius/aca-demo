@@ -106,10 +106,11 @@ az containerapp registry set \
 Add the following secrets to your GitHub repository (Settings → Secrets and variables → Actions):
 
 | Secret Name | Description | Example |
-|-------------|-------------|---------||
-| `AZURE_CONTAINER_REGISTRY` | ACR name (without .azurecr.io) | `myacrname` |
-| `AZURE_RESOURCE_GROUP` | Azure resource group name | `aca-demo-rg` |
-| `CONTAINER_APP_NAME` | Container app name | `flask-demo-app` |
+|-------------|-------------|---------|
+| `ACR_NAME` | ACR name (without .azurecr.io) | `myacrname` |
+| `ACA_RG` | Azure resource group name | `aca-demo-rg` |
+| `ACA_NAME` | Container app name | `flask-demo-app` |
+| `ACA_ENV_NAME` | Container Apps environment name | `aca-demo-env` |
 | `AZURE_CREDENTIALS` | Service principal credentials (JSON) | See below |
 
 #### Create Azure Service Principal
@@ -126,34 +127,32 @@ Copy the entire JSON output to the `AZURE_CREDENTIALS` secret.
 
 ### 4. Deploy
 
-Push to the `main` branch or manually trigger the workflow:
+The workflow can be triggered in two ways:
 
-```bash
-git add .
-git commit -m "Initial setup"
-git push origin main
-```
-
-Or trigger manually from GitHub Actions tab.
+1. **Manually**: Go to GitHub Actions tab and run the workflow manually using `workflow_dispatch`
+2. **Automatically**: Push any changes to the repository (except `.md` files)
 
 ## Container App Descriptor
 
-The deployment uses a YAML descriptor (`containerapp.yaml`) similar to Kubernetes deployments. This descriptor defines:
+The deployment uses a YAML descriptor (`containerapp.yaml`) that defines:
 
-- **Both containers**: Flask app and nginx sidecar
-- **Resources**: CPU and memory allocation for each container
+- **Both containers**: Flask app (`qa-demo`) and nginx sidecar (`nginx-proxy`)
+- **Resources**: CPU (0.25) and memory (0.5Gi) allocation for each container
 - **Ingress**: External access through nginx on port 8080
-- **Scaling**: Min/max replicas and scaling rules
+- **Scaling**: Min 1 / Max 3 replicas with HTTP scaling rule (10 concurrent requests)
+- **Configuration**: Single revision mode with auto transport
 
-The GitHub Actions workflow uses the official `azure/container-apps-deploy-action` for simplified deployment and automatically replaces placeholders in the descriptor with actual values.
+The GitHub Actions workflow uses `az acr build` to build and push images to ACR, then uses the official `azure/container-apps-deploy-action` to deploy. The workflow automatically replaces `{acr-name}` and `{image-tag}` placeholders in the descriptor with actual values.
 
 ## Access the Application
 
-After deployment, the workflow will output the Container App URL. Access it using:
+After deployment, the Container App will be accessible via the generated URL. Access it using:
 
-- **URL**: `https://<your-app>.region.azurecontainerapps.io`
+- **URL**: `https://<your-app>.<region>.azurecontainerapps.io`
 - **Username**: `admin`
 - **Password**: `password123`
+
+The `/health` endpoint is accessible without authentication.
 
 ### Change Default Credentials
 
@@ -170,9 +169,9 @@ htpasswd -nb your-username your-password > nginx-sidecar/.htpasswd
 
 ## API Endpoints
 
-- `/` - Main endpoint with service info
-- `/health` - Health check (no authentication required)
-- `/api/info` - Additional service information
+- `/` - Main endpoint with service info (returns JSON with message, hostname, and version)
+- `/health` - Health check endpoint (no authentication required, returns status)
+- `/api/info` - Additional service information (returns app name, environment, and hostname)
 
 ## Local Testing
 
@@ -183,14 +182,25 @@ htpasswd -nb your-username your-password > nginx-sidecar/.htpasswd
 docker build -t flask-demo ./flask-app
 docker build -t nginx-proxy ./nginx-sidecar
 
+# Create a network
+docker network create flask-network
+
 # Run Flask container
-docker run -d --name flask-app -p 5000:5000 flask-demo
+docker run -d --name flask-app --network flask-network -p 5000:5000 flask-demo
 
 # Run Nginx container
-docker run -d --name nginx-proxy -p 8080:8080 --network container:flask-app nginx-proxy
+docker run -d --name nginx-proxy --network flask-network -p 8080:8080 nginx-proxy
 
-# Test
+# Test with authentication
 curl -u admin:password123 http://localhost:8080
+
+# Test health endpoint (no auth required)
+curl http://localhost:8080/health
+
+# Cleanup
+docker stop flask-app nginx-proxy
+docker rm flask-app nginx-proxy
+docker network rm flask-network
 ```
 
 ### Using Docker Compose:
@@ -206,6 +216,8 @@ services:
       - "5000:5000"
     environment:
       - ENVIRONMENT=development
+    networks:
+      - app-network
 
   nginx-proxy:
     build: ./nginx-sidecar
@@ -213,7 +225,12 @@ services:
       - "8080:8080"
     depends_on:
       - flask-app
-    network_mode: "service:flask-app"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
 ```
 
 Run with:
@@ -228,19 +245,19 @@ View logs in Azure:
 ```bash
 # Stream logs
 az containerapp logs show \
-  --name $CONTAINER_APP_NAME \
-  --resource-group $RESOURCE_GROUP \
+  --name $ACA_NAME \
+  --resource-group $ACA_RG \
   --follow
 
 # View specific container logs
 az containerapp logs show \
-  --name $CONTAINER_APP_NAME \
-  --resource-group $RESOURCE_GROUP \
-  --container flask-demo
+  --name $ACA_NAME \
+  --resource-group $ACA_RG \
+  --container flask-app
 
 az containerapp logs show \
-  --name $CONTAINER_APP_NAME \
-  --resource-group $RESOURCE_GROUP \
+  --name $ACA_NAME \
+  --resource-group $ACA_RG \
   --container nginx-sidecar
 ```
 
